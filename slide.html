@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+
+<title>障害解析について</title>
+
+<meta name="description" content="障害解析について">    
+
+  <meta name="author" content="本多浩文" />
+
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+<link rel="stylesheet" href="css/reveal.css">
+  <link rel="stylesheet" href="css/theme/black.css" id="theme">
+
+
+<!-- For syntax highlighting -->
+  <link rel="stylesheet" href="lib/css/zenburn.css">
+
+
+<!-- If the query includes 'print-pdf', use the PDF print sheet -->
+<script>
+  document.write( '<link rel="stylesheet" href="css/print/' +
+    ( window.location.search.match( /print-pdf/gi ) ? 'pdf' : 'paper' ) + 
+    '.css" type="text/css" media="print">' );
+</script>
+
+<!--[if lt IE 9]>
+<script src="lib/js/html5shiv.js"></script>
+<![endif]-->
+</head>
+
+<body>
+
+<div class="reveal">
+
+<!-- Any section element inside of this container is displayed as a slide -->
+<div class="slides">
+
+<section>
+<h1>障害解析について</h1>
+<h3>本多浩文</h3>
+<p>
+<h4>2015/01/30</h4>
+</p>
+</section>  
+
+
+<section><section id="はじめに" class="titleslide slide level1"><h1>はじめに</h1></section><section id="自己紹介" class="slide level2">
+<h1>自己紹介</h1>
+<ul>
+<li>担当業務</li>
+<li>主にC言語で書かれたOSSの機能調査、障害解析</li>
+</ul>
+</section><section id="今日のお題" class="slide level2">
+<h1>今日のお題</h1>
+<ul>
+<li>障害解析のための検索の使い方</li>
+</ul>
+</section></section>
+<section><section id="web検索の使い方" class="titleslide slide level1"><h1>Web検索の使い方</h1></section><section id="良くない検索方法" class="slide level2">
+<h1>良くない検索方法</h1>
+<figure>
+<img src="badsearch.png" />
+</figure>
+</section><section id="何が良くないのか" class="slide level2">
+<h1>何が良くないのか</h1>
+<ul>
+<li>問題の特徴が絞り込めていない</li>
+<li>信頼出来ない(情報が古い等)情報が多数含まれる</li>
+</ul>
+</section><section id="より良い検索結果" class="slide level2">
+<h1>より良い検索結果</h1>
+<figure>
+<img src="bettersearch.png" />
+</figure>
+</section><section id="何がちがうのか" class="slide level2">
+<h1>何がちがうのか</h1>
+<ul>
+<li>対象パッケージを絞りこんでいる(kernel-2.6.32)</li>
+<li>問題が発生したモジュールを特定している(vlan)</li>
+<li>信頼性の高い情報があるサイトを使っている(site:bugzilla.redhat.com)</li>
+</ul>
+</section></section>
+<section><section id="検索キーワードを探す" class="titleslide slide level1"><h1>検索キーワードを探す</h1></section><section id="ログの内容を確認する" class="slide level2">
+<h1>ログの内容を確認する</h1>
+<p>ログの変数部分とそうでない所を区別する。</p>
+<pre><code>Jul 21 13:00:37 localhost kernel: IPMI message handler: BMC returned \
+incorrect response, expected netfn 2d cmd 0, got netfn 5 cmd 12</code></pre>
+<p>&quot;2d&quot;,&quot;0&quot;,&quot;5&quot;,&quot;12&quot; は変数。</p>
+<ul>
+<li>変数は除外して検索すると、うまく情報を得られる場合がある</li>
+</ul>
+</section><section id="何がログを出力しているのか" class="slide level2">
+<h1>何がログを出力しているのか？</h1>
+<pre><code>[#|2012-07-05T15:10:54.628-0600|WARNING|glassfish3.1.2\
+|com.sun.grizzly.config.GrizzlyServiceListener|\
+_ThreadID=11;_ThreadName=Thread-2;|GRIZZLY0006: Exception accepting channel
+java.io.IOException: Too many open files</code></pre>
+<p>java の IOException が出力されているが、実は&quot;Too many open files&quot;を出力しているのは、glibcのstrerror(3)という関数。</p>
+</section><section id="エラー番号とメッセージの対応" class="slide level2">
+<h1>エラー番号とメッセージの対応</h1>
+<p>/usr/include/asm-generic/errno-base.h を見ると…</p>
+<pre><code>#define EMFILE          24      /* Too many open files */</code></pre>
+<p>EMFILE というエラーが発生していることが分かる。 エラー番号だけを拾って以下のようなログになっていることも。</p>
+<pre><code>errno=24</code></pre>
+<p>/usr/include/asm-generic/errno.h も要参照。</p>
+</section></section>
+<section><section id="既知の事象を確認する" class="titleslide slide level1"><h1>既知の事象を確認する</h1></section><section id="修正済みの問題を確認" class="slide level2">
+<h1>修正済みの問題を確認</h1>
+<ul>
+<li>最新パッケージをダウンロードして、変更履歴から検索する。以下は hpsa モジュールの履歴を抜き出した例。</li>
+</ul>
+<pre><code># yum install yum-downloadonly
+# yum --downloadonly --downloaddir=/tmp install kernel
+# rpm -q -p /tmp/kernel*.rpm --changelog|egrep &#39;(^\*|hpsa)&#39;
+(略)
+* 月  9月 23 2013 Rafael Aquini &lt;aquini@redhat.com&gt; [2.6.32-420.el6]
+- [block] hpsa: remove unused Smart Array ID (Tomas Henzl) [1002788]
+- [block] hpsa: bump driver version to reflect changes (Tomas Henzl) [1002788]
+- [block] hpsa: housekeeping patch for device_id and product arrays (Tomas Henzl) [1002788]
+- [block] hpsa: add HP Smart Array Gen8 names (Tomas Henzl) [1002788]
+- [block] hpsa: add HP Smart Array Gen9 PCI ID&#39;s (Tomas Henzl) [1002788]
+- [block] hpsa: remove unneeded variable (Tomas Henzl) [893773]
+- [block] hpsa: fix a race in cmd_free/scsi_done (Tomas Henzl) [893773]
+</code></pre>
+</section><section id="変更履歴の見方" class="slide level2">
+<h1>変更履歴の見方</h1>
+<ul>
+<li>タイトルから問題に関係あるかどうかを類推する</li>
+<li>末尾の番号([803773])は bugzilla.redhat.com での管理番号に対応。</li>
+</ul>
+</section></section>
+<section><section id="信頼出来るサイトで検索" class="titleslide slide level1"><h1>信頼出来るサイトで検索</h1></section><section id="bugzilla-で検索する" class="slide level2">
+<h1>bugzilla で検索する</h1>
+<figure>
+<img src="bugzilla.png" />
+</figure>
+<ul>
+<li>製品、検索コンポーネントを絞り込む</li>
+<li>Status の&quot;NEW&quot;,&quot;ASSIGN&quot;の選択は解除する(修正済みの問題も検索するため)</li>
+</ul>
+</section><section id="メリットデメリット" class="slide level2">
+<h1>メリット／デメリット</h1>
+<ul>
+<li>良い点</li>
+<li>製品やコンポーネントを絞りこめる</li>
+<li>既に修正されている問題かどうか確認できる</li>
+<li>管理番号が分かっていれば簡単に検索できる</li>
+<li>悪い点</li>
+<li>非公開の閲覧できないページが結構ある</li>
+</ul>
+</section><section id="閲覧できない場合" class="slide level2">
+<h1>閲覧できない場合</h1>
+<figure>
+<img src="notauthorized.png" alt="notauthorized" /><figcaption>notauthorized</figcaption>
+</figure>
+</section><section id="大本の情報を使う" class="slide level2">
+<h1>大本の情報を使う</h1>
+<ul>
+<li>RedHat 社はコミュニティで修正された問題を元にしていることが多い</li>
+<li>変更履歴のタイトルはコミュニティでの報告内容がそのまま使われていることが多い</li>
+</ul>
+</section><section id="lkml.org-で検索" class="slide level2">
+<h1>lkml.org で検索</h1>
+<figure>
+<img src="hpsafix.png" />
+</figure>
+</section><section id="信頼性が高いサイト" class="slide level2">
+<h1>信頼性が高いサイト</h1>
+<ul>
+<li>バグ管理システム(https://bugzilla.redhat.com)</li>
+<li>ナレッジベース(https://access.redhat.com/knowledge)</li>
+<li>OSSコミュニティのML,バグ管理システム,ナレッジベース(http://lkml.org, http://bugzilla.kernel.org/)</li>
+</ul>
+</section></section>
+<section><section id="まとめ" class="titleslide slide level1"><h1>まとめ</h1></section><section id="今日の内容" class="slide level2">
+<h1>今日の内容</h1>
+<ul>
+<li>ログや既知の履歴からキーワードを見つけ出す</li>
+<li>信頼性の高いサイトで検索する</li>
+</ul>
+</section><section id="ご清聴ありがとうございました" class="slide level2">
+<h1>ご清聴ありがとうございました</h1>
+</section></section>
+</div>
+
+<script src="lib/js/head.min.js"></script>
+<script src="js/reveal.js"></script>
+
+<script>
+  // Full list of configuration options available here:
+  // https://github.com/hakimel/reveal.js#configuration
+  Reveal.initialize({
+    controls: true,
+    progress: true,
+    history: true,
+    center: false,
+
+  // available themes are in /css/theme
+      theme: Reveal.getQueryHash().theme || 'black', 
+  
+  // default/cube/page/concave/zoom/linear/fade/none
+      transition: Reveal.getQueryHash().transition || 'default',
+  
+  // Optional libraries used to extend on reveal.js
+  dependencies: [
+    { src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+    { src: 'plugin/markdown/showdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+    { src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+    { src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+    { src: 'plugin/zoom-js/zoom.js', async: true, condition: function() { return !!document.body.classList; } },
+    { src: 'plugin/notes/notes.js', async: true, condition: function() { return !!document.body.classList; } }
+    // { src: 'plugin/remotes/remotes.js', async: true, condition: function() { return !!document.body.classList; } }
+  ]
+  });
+
+</script>
+
+</body>
+</html>
